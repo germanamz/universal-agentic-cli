@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "httpx>=0.27",
     "litellm>=1.81.12",
     "pydantic>=2.12.5",
     "pyyaml>=6.0",
@@ -16,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 hf-tokenizers = ["tokenizers>=0.20"]
+mcp-ws = ["websockets>=13.0"]
 
 [project.scripts]
 uac = "uac.cli:main"
