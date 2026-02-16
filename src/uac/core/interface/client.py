@@ -20,6 +20,20 @@ from uac.core.interface.transpiler import Transpiler
 from uac.core.interface.transpilers.anthropic import AnthropicTranspiler
 from uac.core.interface.transpilers.gemini import GeminiTranspiler
 from uac.core.interface.transpilers.openai import OpenAITranspiler
+from uac.core.polyfills.capabilities import CapabilityRegistry
+from uac.core.polyfills.strategy import NativeStrategy, PromptedStrategy, ToolCallingStrategy
+
+_default_registry: CapabilityRegistry | None = None
+
+
+def _get_default_registry() -> CapabilityRegistry:
+    """Return (and cache) the default capability registry."""
+    global _default_registry
+    if _default_registry is None:
+        from uac.core.polyfills.registry_data import build_default_registry
+
+        _default_registry = build_default_registry()
+    return _default_registry
 
 
 def get_transpiler(provider: str) -> Transpiler:
@@ -52,9 +66,24 @@ class ModelClient:
         response = await client.generate(history)
     """
 
-    def __init__(self, config: ModelConfig) -> None:
+    def __init__(
+        self,
+        config: ModelConfig,
+        registry: CapabilityRegistry | None = None,
+        strategy: ToolCallingStrategy | None = None,
+    ) -> None:
         self.config = config
         self.transpiler = get_transpiler(config.provider)
+
+        resolved_registry = registry or _get_default_registry()
+        profile = resolved_registry.resolve(config)
+
+        if strategy is not None:
+            self.strategy: ToolCallingStrategy = strategy
+        elif profile.supports_native_tools:
+            self.strategy = NativeStrategy()
+        else:
+            self.strategy = PromptedStrategy()
 
     async def generate(
         self,
@@ -72,8 +101,11 @@ class ModelClient:
         Returns:
             A CanonicalMessage representing the model's response.
         """
+        # Let the strategy transform messages/tools before calling
+        prepared_messages, prepared_tools = self.strategy.prepare(messages, tools)
+
         # Build LiteLLM call parameters
-        litellm_messages = self._prepare_messages(messages)
+        litellm_messages = self._prepare_messages(prepared_messages)
         call_kwargs: dict[str, Any] = {
             "model": self.config.model,
             "messages": litellm_messages,
@@ -85,14 +117,15 @@ class ModelClient:
         if self.config.api_base:
             call_kwargs["api_base"] = self.config.api_base
 
-        if tools:
-            call_kwargs["tools"] = tools
+        if prepared_tools:
+            call_kwargs["tools"] = prepared_tools
 
         # Call LiteLLM (type stubs are incomplete)
         response = await litellm.acompletion(**call_kwargs)  # pyright: ignore[reportUnknownMemberType]
 
-        # Convert response to CMS
-        return self._parse_response(response)
+        # Convert response to CMS and let the strategy interpret it
+        parsed = self._parse_response(response)
+        return self.strategy.interpret(parsed)
 
     def _prepare_messages(self, history: ConversationHistory) -> list[dict[str, Any]]:
         """Convert CMS history to LiteLLM-compatible messages.
