@@ -7,7 +7,10 @@ authors = [
     { name = "German Meza", email = "iam@germanamz.com" }
 ]
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "litellm>=1.81.12",
+    "pydantic>=2.12.5",
+]
 
 [project.scripts]
 uac = "uac.cli:main"

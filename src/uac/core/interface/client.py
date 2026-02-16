@@ -1,0 +1,159 @@
+"""ModelClient — unified async interface to LLMs via LiteLLM.
+
+Wraps LiteLLM behind a CMS-native interface so the rest of the system
+only ever works with CanonicalMessage and ConversationHistory.
+"""
+
+from typing import Any
+
+import litellm
+
+from uac.core.interface.config import ModelConfig
+from uac.core.interface.models import (
+    CanonicalMessage,
+    ContentPart,
+    ConversationHistory,
+    TextContent,
+    ToolCall,
+)
+from uac.core.interface.transpiler import Transpiler
+from uac.core.interface.transpilers.anthropic import AnthropicTranspiler
+from uac.core.interface.transpilers.gemini import GeminiTranspiler
+from uac.core.interface.transpilers.openai import OpenAITranspiler
+
+
+def get_transpiler(provider: str) -> Transpiler:
+    """Return the appropriate transpiler for a provider."""
+    mapping: dict[str, Transpiler] = {
+        "openai": OpenAITranspiler(),
+        "anthropic": AnthropicTranspiler(),
+        "gemini": GeminiTranspiler(),
+        "google": GeminiTranspiler(),
+        "vertex_ai": GeminiTranspiler(),
+    }
+    return mapping.get(provider, OpenAITranspiler())
+
+
+class ToolDefinition(CanonicalMessage):
+    """Schema for a tool that can be passed to the model.
+
+    This is a lightweight wrapper — actual tool schemas are defined by
+    the protocol layer (MCP/UTCP) and converted here.
+    """
+
+
+class ModelClient:
+    """Async client for generating LLM responses via LiteLLM.
+
+    Usage::
+
+        config = ModelConfig(model="openai/gpt-4o")
+        client = ModelClient(config)
+        response = await client.generate(history)
+    """
+
+    def __init__(self, config: ModelConfig) -> None:
+        self.config = config
+        self.transpiler = get_transpiler(config.provider)
+
+    async def generate(
+        self,
+        messages: ConversationHistory,
+        tools: list[dict[str, Any]] | None = None,
+        **kwargs: Any,
+    ) -> CanonicalMessage:
+        """Generate a response from the configured model.
+
+        Args:
+            messages: The conversation history in CMS format.
+            tools: Optional list of tool definitions in OpenAI function schema format.
+            **kwargs: Additional parameters passed to LiteLLM.
+
+        Returns:
+            A CanonicalMessage representing the model's response.
+        """
+        # Build LiteLLM call parameters
+        litellm_messages = self._prepare_messages(messages)
+        call_kwargs: dict[str, Any] = {
+            "model": self.config.model,
+            "messages": litellm_messages,
+            **kwargs,
+        }
+
+        if self.config.api_key:
+            call_kwargs["api_key"] = self.config.api_key
+        if self.config.api_base:
+            call_kwargs["api_base"] = self.config.api_base
+
+        if tools:
+            call_kwargs["tools"] = tools
+
+        # Call LiteLLM (type stubs are incomplete)
+        response = await litellm.acompletion(**call_kwargs)  # pyright: ignore[reportUnknownMemberType]
+
+        # Convert response to CMS
+        return self._parse_response(response)
+
+    def _prepare_messages(self, history: ConversationHistory) -> list[dict[str, Any]]:
+        """Convert CMS history to LiteLLM-compatible messages.
+
+        LiteLLM uses OpenAI's message format, so we use the OpenAI transpiler
+        for the message list. Provider-specific adjustments (e.g. system prompt
+        extraction for Anthropic) are handled by LiteLLM internally.
+        """
+        # LiteLLM expects OpenAI-style messages; it handles provider adaptation
+        openai_transpiler = OpenAITranspiler()
+        payload = openai_transpiler.to_provider(history)
+        result: list[dict[str, Any]] = payload["messages"]
+        return result
+
+    def _parse_response(self, response: Any) -> CanonicalMessage:
+        """Convert a LiteLLM response to a CanonicalMessage.
+
+        LiteLLM returns OpenAI-compatible response objects regardless of
+        the underlying provider.
+        """
+        message = response.choices[0].message
+
+        content: list[ContentPart] = []
+        if message.content:
+            content = [TextContent(text=message.content)]
+
+        tool_calls: list[ToolCall] | None = None
+        if message.tool_calls:
+            tool_calls = [
+                ToolCall(
+                    id=tc.id,
+                    name=tc.function.name,
+                    arguments=_parse_arguments(tc.function.arguments),
+                )
+                for tc in message.tool_calls
+            ]
+
+        metadata: dict[str, Any] = {}
+        if hasattr(response, "usage") and response.usage:
+            metadata["usage"] = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+            }
+        metadata["finish_reason"] = response.choices[0].finish_reason
+        metadata["model"] = response.model
+
+        return CanonicalMessage(
+            role="assistant",
+            content=content,
+            tool_calls=tool_calls,
+            metadata=metadata,
+        )
+
+
+def _parse_arguments(raw: str) -> dict[str, Any]:
+    """Parse JSON string arguments from a tool call."""
+    import json
+
+    try:
+        result: dict[str, Any] = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        result = {"raw": raw}
+    return result
