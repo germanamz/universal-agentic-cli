@@ -1,0 +1,16 @@
+version: "1"
+name: research-pipeline
+topology:
+  type: pipeline
+  order: [researcher, drafter, reviewer]
+model:
+  model: openai/gpt-4o
+  api_key: "${OPENAI_API_KEY}"
+agents:
+  researcher:
+    manifest: agents/researcher.yaml
+  drafter:
+    manifest: agents/drafter.yaml
+  reviewer:
+    manifest: agents/reviewer.yaml
+max_iterations: 30

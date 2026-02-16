@@ -2111,11 +2111,13 @@ name = "uac"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "httpx" },
     { name = "litellm" },
     { name = "opentelemetry-api" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "rich" },
     { name = "tiktoken" },
 ]
 
@@ -2142,6 +2144,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.1" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "litellm", specifier = ">=1.81.12" },
     { name = "opentelemetry-api", specifier = ">=1.20" },
@@ -2149,6 +2152,7 @@ requires-dist = [
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.20" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "rich", specifier = ">=13.0" },
     { name = "tiktoken", specifier = ">=0.7" },
     { name = "tokenizers", marker = "extra == 'hf-tokenizers'", specifier = ">=0.20" },
     { name = "websockets", marker = "extra == 'mcp-ws'", specifier = ">=13.0" },

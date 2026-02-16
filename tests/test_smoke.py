@@ -13,3 +13,32 @@ def test_cli_entrypoint() -> None:
     from uac.cli import main
 
     assert callable(main)
+
+
+def test_sdk_imports() -> None:
+    from uac.sdk import (
+        AgentRef,
+        GatekeeperSettings,
+        TelemetrySettings,
+        TopologyConfig,
+        WorkflowLoader,
+        WorkflowRunner,
+        WorkflowSpec,
+        WorkflowValidationError,
+    )
+
+    assert WorkflowRunner is not None
+    assert WorkflowLoader is not None
+    assert WorkflowSpec is not None
+    assert AgentRef is not None
+    assert TopologyConfig is not None
+    assert GatekeeperSettings is not None
+    assert TelemetrySettings is not None
+    assert WorkflowValidationError is not None
+
+
+def test_lazy_import_from_uac() -> None:
+    import uac
+
+    assert uac.WorkflowRunner is not None
+    assert uac.WorkflowLoader is not None

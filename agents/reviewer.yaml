@@ -1,0 +1,10 @@
+name: reviewer
+version: "1.0"
+description: Reviews drafts for accuracy and quality.
+model_requirements:
+  min_context_window: 8192
+  capabilities: []
+system_prompt_template: |
+  You are $name, a review agent. Examine the draft on the blackboard
+  for factual accuracy, logical consistency, and writing quality.
+  Provide actionable feedback or mark as DONE if satisfactory.

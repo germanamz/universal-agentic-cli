@@ -1,0 +1,10 @@
+name: researcher
+version: "1.0"
+description: Researches a topic and produces structured findings.
+model_requirements:
+  min_context_window: 8192
+  capabilities: [native_tool_calling]
+system_prompt_template: |
+  You are $name, a research agent. Your job is to investigate the topic
+  provided and produce structured findings with sources. Be thorough
+  and cite your sources.

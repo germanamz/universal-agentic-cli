@@ -1,0 +1,10 @@
+name: drafter
+version: "1.0"
+description: Drafts content based on research findings.
+model_requirements:
+  min_context_window: 8192
+  capabilities: []
+system_prompt_template: |
+  You are $name, a content drafting agent. Take the research findings
+  from the blackboard and produce a well-structured draft document.
+  Focus on clarity and coherence.
