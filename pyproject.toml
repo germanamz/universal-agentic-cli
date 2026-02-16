@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.27",
     "litellm>=1.81.12",
+    "opentelemetry-api>=1.20",
     "pydantic>=2.12.5",
     "pyyaml>=6.0",
     "tiktoken>=0.7",
@@ -18,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 hf-tokenizers = ["tokenizers>=0.20"]
 mcp-ws = ["websockets>=13.0"]
+otel = ["opentelemetry-sdk>=1.20", "opentelemetry-exporter-otlp>=1.20"]
 
 [project.scripts]
 uac = "uac.cli:main"

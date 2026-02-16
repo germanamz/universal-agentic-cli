@@ -16,6 +16,15 @@ from uac.core.interface.client import ModelClient  # noqa: TC001
 from uac.core.interface.models import CanonicalMessage, ConversationHistory
 from uac.core.orchestration.manifest import render_prompt
 from uac.core.orchestration.models import AgentManifest  # noqa: TC001
+from uac.utils.telemetry import (
+    ATTR_AGENT_ID,
+    ATTR_ITERATION,
+    ATTR_MAX_ITERATIONS,
+    ATTR_TOPOLOGY,
+    get_tracer,
+)
+
+_tracer = get_tracer(__name__)
 
 
 class AgentNode:
@@ -48,9 +57,20 @@ class AgentNode:
         Builds a conversation from the system prompt and the context slice,
         calls the model, and returns a delta to apply to the blackboard.
         """
-        history = self._build_history(context)
-        response = await self.client.generate(history, tools=self.tools)
-        return self._response_to_delta(response)
+        with _tracer.start_as_current_span("agent.step") as span:
+            span.set_attribute(ATTR_AGENT_ID, self.name)
+
+            history = self._build_history(context)
+            response = await self.client.generate(history, tools=self.tools)
+
+            delta = self._response_to_delta(response)
+
+            # Record token usage from response metadata if available
+            usage: dict[str, Any] | None = response.metadata.get("usage")
+            if isinstance(usage, dict):
+                span.set_attribute("uac.tokens.total", int(usage.get("total_tokens", 0)))
+
+            return delta
 
     def _build_history(self, context: ContextSlice) -> ConversationHistory:
         """Construct a ConversationHistory from the system prompt and context slice."""
@@ -90,13 +110,13 @@ class AgentNode:
 
     def _response_to_delta(self, response: CanonicalMessage) -> StateDelta:
         """Convert a model response into a StateDelta."""
-        trace = TraceEntry(
+        trace_entry = TraceEntry(
             agent_id=self.name,
             action="generate",
             data={"text": response.text, "has_tool_calls": response.tool_calls is not None},
         )
         return StateDelta(
-            trace_entries=[trace],
+            trace_entries=[trace_entry],
             artifacts={"last_response": {self.name: response.text}},
         )
 
@@ -128,21 +148,32 @@ class Orchestrator(ABC):
         Returns:
             The final blackboard state.
         """
-        self.blackboard.apply(StateDelta(belief_state=goal))
+        with _tracer.start_as_current_span("orchestration.run") as span:
+            span.set_attribute(ATTR_TOPOLOGY, self.__class__.__name__)
+            span.set_attribute(ATTR_MAX_ITERATIONS, self.max_iterations)
 
-        for iteration in range(self.max_iterations):
-            agent = await self.select_agent(iteration)
-            if agent is None:
-                break
+            self.blackboard.apply(StateDelta(belief_state=goal))
 
-            context = self.blackboard.slice(agent_id=agent.name)
-            delta = await agent.step(context)
-            self.blackboard.apply(delta)
+            iteration = 0
+            for iteration in range(self.max_iterations):
+                agent = await self.select_agent(iteration)
+                if agent is None:
+                    break
 
-            if await self.is_done(iteration):
-                break
+                span.add_event(
+                    "agent.selected",
+                    {ATTR_AGENT_ID: agent.name, ATTR_ITERATION: iteration},
+                )
 
-        return self.blackboard
+                context = self.blackboard.slice(agent_id=agent.name)
+                delta = await agent.step(context)
+                self.blackboard.apply(delta)
+
+                if await self.is_done(iteration):
+                    break
+
+            span.set_attribute(ATTR_ITERATION, iteration)
+            return self.blackboard
 
     @abstractmethod
     async def select_agent(self, iteration: int) -> AgentNode | None:

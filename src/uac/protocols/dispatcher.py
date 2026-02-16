@@ -6,10 +6,13 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from uac.protocols.errors import ToolNotFoundError
+from uac.utils.telemetry import ATTR_TOOL_NAME, ATTR_TOOL_PROVIDER, get_tracer
 
 if TYPE_CHECKING:
     from uac.core.interface.models import ToolCall, ToolResult
     from uac.protocols.provider import ToolProvider
+
+_tracer = get_tracer(__name__)
 
 
 class ToolDispatcher:
@@ -45,10 +48,15 @@ class ToolDispatcher:
 
     async def execute(self, tool_call: ToolCall) -> ToolResult:
         """Route a single tool call to its owning provider."""
-        provider = self._tool_map.get(tool_call.name)
-        if provider is None:
-            raise ToolNotFoundError(tool_call.name)
-        return await provider.execute_tool(tool_call.name, tool_call.arguments)
+        with _tracer.start_as_current_span("tool.execute") as span:
+            span.set_attribute(ATTR_TOOL_NAME, tool_call.name)
+
+            provider = self._tool_map.get(tool_call.name)
+            if provider is None:
+                raise ToolNotFoundError(tool_call.name)
+
+            span.set_attribute(ATTR_TOOL_PROVIDER, provider.__class__.__name__)
+            return await provider.execute_tool(tool_call.name, tool_call.arguments)
 
     async def execute_all(self, tool_calls: list[ToolCall]) -> list[ToolResult]:
         """Execute multiple tool calls concurrently."""

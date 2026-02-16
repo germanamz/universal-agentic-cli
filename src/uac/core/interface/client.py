@@ -22,6 +22,18 @@ from uac.core.interface.transpilers.gemini import GeminiTranspiler
 from uac.core.interface.transpilers.openai import OpenAITranspiler
 from uac.core.polyfills.capabilities import CapabilityRegistry
 from uac.core.polyfills.strategy import NativeStrategy, PromptedStrategy, ToolCallingStrategy
+from uac.utils.telemetry import (
+    ATTR_FINISH_REASON,
+    ATTR_MODEL,
+    ATTR_PROVIDER,
+    ATTR_STRATEGY,
+    ATTR_TOKENS_COMPLETION,
+    ATTR_TOKENS_PROMPT,
+    ATTR_TOKENS_TOTAL,
+    get_tracer,
+)
+
+_tracer = get_tracer(__name__)
 
 _default_registry: CapabilityRegistry | None = None
 
@@ -101,31 +113,48 @@ class ModelClient:
         Returns:
             A CanonicalMessage representing the model's response.
         """
-        # Let the strategy transform messages/tools before calling
-        prepared_messages, prepared_tools = self.strategy.prepare(messages, tools)
+        with _tracer.start_as_current_span("model.generate") as span:
+            span.set_attribute(ATTR_MODEL, self.config.model)
+            span.set_attribute(ATTR_PROVIDER, self.config.provider)
+            span.set_attribute(ATTR_STRATEGY, self.strategy.__class__.__name__)
 
-        # Build LiteLLM call parameters
-        litellm_messages = self._prepare_messages(prepared_messages)
-        call_kwargs: dict[str, Any] = {
-            "model": self.config.model,
-            "messages": litellm_messages,
-            **kwargs,
-        }
+            # Let the strategy transform messages/tools before calling
+            prepared_messages, prepared_tools = self.strategy.prepare(messages, tools)
 
-        if self.config.api_key:
-            call_kwargs["api_key"] = self.config.api_key
-        if self.config.api_base:
-            call_kwargs["api_base"] = self.config.api_base
+            # Build LiteLLM call parameters
+            litellm_messages = self._prepare_messages(prepared_messages)
+            call_kwargs: dict[str, Any] = {
+                "model": self.config.model,
+                "messages": litellm_messages,
+                **kwargs,
+            }
 
-        if prepared_tools:
-            call_kwargs["tools"] = prepared_tools
+            if self.config.api_key:
+                call_kwargs["api_key"] = self.config.api_key
+            if self.config.api_base:
+                call_kwargs["api_base"] = self.config.api_base
 
-        # Call LiteLLM (type stubs are incomplete)
-        response = await litellm.acompletion(**call_kwargs)  # pyright: ignore[reportUnknownMemberType]
+            if prepared_tools:
+                call_kwargs["tools"] = prepared_tools
 
-        # Convert response to CMS and let the strategy interpret it
-        parsed = self._parse_response(response)
-        return self.strategy.interpret(parsed)
+            # Call LiteLLM (type stubs are incomplete)
+            response = await litellm.acompletion(**call_kwargs)  # pyright: ignore[reportUnknownMemberType]
+
+            # Convert response to CMS and let the strategy interpret it
+            parsed = self._parse_response(response)
+            result = self.strategy.interpret(parsed)
+
+            # Record token usage and finish reason from response metadata
+            usage: dict[str, Any] | None = result.metadata.get("usage")
+            if isinstance(usage, dict):
+                span.set_attribute(ATTR_TOKENS_PROMPT, int(usage.get("prompt_tokens", 0)))
+                span.set_attribute(ATTR_TOKENS_COMPLETION, int(usage.get("completion_tokens", 0)))
+                span.set_attribute(ATTR_TOKENS_TOTAL, int(usage.get("total_tokens", 0)))
+            finish_reason = result.metadata.get("finish_reason")
+            if finish_reason is not None:
+                span.set_attribute(ATTR_FINISH_REASON, str(finish_reason))
+
+            return result
 
     def _prepare_messages(self, history: ConversationHistory) -> list[dict[str, Any]]:
         """Convert CMS history to LiteLLM-compatible messages.
