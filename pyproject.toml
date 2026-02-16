@@ -1,0 +1,60 @@
+[project]
+name = "uac"
+version = "0.1.0"
+description = "Universal Agentic CLI — model-agnostic, multi-agent orchestration platform"
+readme = "README.md"
+authors = [
+    { name = "German Meza", email = "iam@germanamz.com" }
+]
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+uac = "uac.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.9.30,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "ruff>=0.9",
+    "pyright>=1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra -q"
+
+[tool.ruff]
+src = ["src"]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "N",     # pep8-naming
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "SIM",   # flake8-simplify
+    "TCH",   # flake8-type-checking
+    "RUF",   # ruff-specific rules
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["uac"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+pythonPlatform = "All"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
