@@ -1921,6 +1921,7 @@ source = { editable = "." }
 dependencies = [
     { name = "litellm" },
     { name = "pydantic" },
+    { name = "pyyaml" },
 ]
 
 [package.dev-dependencies]
@@ -1936,6 +1937,7 @@ dev = [
 requires-dist = [
     { name = "litellm", specifier = ">=1.81.12" },
     { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "pyyaml", specifier = ">=6.0" },
 ]
 
 [package.metadata.requires-dev]
